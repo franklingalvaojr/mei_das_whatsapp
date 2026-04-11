@@ -1,0 +1,8 @@
+Flask
+twilio
+reportlab
+qrcode
+schedule
+gspread
+oauth2client
+gunicorn
