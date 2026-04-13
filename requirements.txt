@@ -1,8 +1,4 @@
-Flask
-twilio
-reportlab
-qrcode
-schedule
-gspread
-oauth2client
-gunicorn
+Flask==3.0.2
+gunicorn==21.2.0
+twilio==9.0.0
+reportlab==4.0.9
