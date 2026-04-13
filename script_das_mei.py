@@ -1,4 +1,53 @@
 import os
+
+import json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+def carregar_clientes_google():
+    # 1. Carrega credenciais da variável de ambiente do Railway
+    cred_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+
+    if not cred_json:
+        return {"erro": "Variável GOOGLE_CREDENTIALS_JSON não encontrada."}
+
+    info = json.loads(cred_json)
+
+    # 2. Cria credenciais para API
+    credentials = service_account.Credentials.from_service_account_info(
+        info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    )
+
+    # 3. Conecta ao Google Sheets
+    service = build("sheets", "v4", credentials=credentials)
+
+    # ID da planilha (vem na URL)
+    SPREADSHEET_ID = "1XvmBdAjl1blUd7FQkQR_IWrKg3UY51nWFup-9i7tiAs"
+
+    # Nome da aba
+    RANGE_NAME = "Página1!A:C"  # colunas CNPJ, Nome, WhatsApp
+
+    # 4. Faz leitura
+    sheet = service.spreadsheets()
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=RANGE_NAME
+    ).execute()
+
+    values = result.get("values", [])
+
+    # 5. Converte para lista de dicionários
+    clientes = []
+    for linha in values[1:]:  # pula o cabeçalho
+        clientes.append({
+            "cnpj": linha[0] if len(linha) > 0 else "",
+            "nome": linha[1] if len(linha) > 1 else "",
+            "whatsapp": linha[2] if len(linha) > 2 else "",
+        })
+
+    return clientes
+
 from flask import Flask, request, send_from_directory, jsonify
 from twilio.rest import Client
 from reportlab.pdfgen import canvas
@@ -7,6 +56,10 @@ from reportlab.pdfgen import canvas
 # CONFIGURAÇÃO DO FLASK
 # ==========================================================
 app = Flask(__name__)
+@app.route("/clientes")
+def rota_clientes():
+    dados = carregar_clientes_google()
+    return {"clientes": dados}
 
 # Pasta onde os PDFs gerados serão armazenados
 PDF_DIR = "generated_pdfs"
