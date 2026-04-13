@@ -1,73 +1,96 @@
 import os
 from flask import Flask, request, send_from_directory, jsonify
-from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
+from reportlab.pdfgen import canvas
 
+# ==========================================================
+# CONFIGURAÇÃO DO FLASK
+# ==========================================================
 app = Flask(__name__)
 
-# Pasta onde os PDFs gerados ficam
-PDF_FOLDER = "generated_pdfs"
-os.makedirs(PDF_FOLDER, exist_ok=True)
+# Pasta onde os PDFs gerados serão armazenados
+PDF_DIR = "generated_pdfs"
+os.makedirs(PDF_DIR, exist_ok=True)
 
-# ---------------------------------------------------------
-# ROTA DE TESTE
-# ---------------------------------------------------------
-@app.route("/")
+
+# ==========================================================
+# FUNÇÃO PARA GERAR UM PDF REAL (SEM ERROS DE ASCII)
+# ==========================================================
+def gerar_pdf(nome_arquivo, texto="Documento gerado automaticamente."):
+    caminho = os.path.join(PDF_DIR, nome_arquivo)
+    c = canvas.Canvas(caminho)
+    c.drawString(100, 750, texto)
+    c.save()
+    return caminho
+
+
+# ==========================================================
+# ROTA PARA SERVIR PDFs PUBLICAMENTE (Twilio acessa daqui)
+# ==========================================================
+@app.route('/pdfs/<path:filename>', methods=['GET'])
+def serve_pdf(filename):
+    return send_from_directory(PDF_DIR, filename, as_attachment=True)
+
+
+# ==========================================================
+# WEBHOOK DO WHATSAPP (Twilio chama esta rota)
+# ==========================================================
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.form
+    mensagem = data.get("Body", "").strip().lower()
+    celular_cliente = data.get("From", "")
+
+    if mensagem == "das":
+        nome_pdf = "DAS_MEI.pdf"
+        caminho_pdf = gerar_pdf(nome_pdf, "Seu DAS MEI gerado automaticamente.")
+
+        pdf_url = f"{os.environ.get('RAILWAY_URL')}/pdfs/{nome_pdf}"
+
+        enviar_whatsapp(
+            to=celular_cliente,
+            body="Aqui está o seu DAS MEI deste mês.",
+            media_url=pdf_url
+        )
+
+        return "PDF enviado", 200
+
+    return "Mensagem recebida", 200
+
+
+# ==========================================================
+# FUNÇÃO PARA ENVIAR MENSAGEM VIA TWILIO
+# ==========================================================
+def enviar_whatsapp(to, body, media_url=None):
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    from_whatsapp = os.environ.get("TWILIO_FROM")
+
+    client = Client(account_sid, auth_token)
+
+    mensagem = {
+        "from_": from_whatsapp,
+        "body": body,
+        "to": to
+    }
+
+    if media_url:
+        mensagem["media_url"] = [media_url]
+
+    client.messages.create(**mensagem)
+
+
+# ==========================================================
+# ROTA PARA TESTAR SE O SERVIDOR ESTÁ ONLINE
+# ==========================================================
+@app.route('/', methods=['GET'])
 def home():
-    return "Servidor Flask rodando no Railway 💼"
+    return jsonify({"status": "online", "message": "Servidor MEI DAS rodando!"})
 
 
-# ---------------------------------------------------------
-# ROTA PARA SERVIR PDFs VIA URL
-# Exemplo: https://seuapp.up.railway.app/pdfs/arquivo.pdf
-# ---------------------------------------------------------
-@app.route("/pdfs/<path:filename>")
-def servir_pdf(filename):
-    return send_from_directory(PDF_FOLDER, filename)
-
-
-# ---------------------------------------------------------
-# WEBHOOK DO TWILIO (RECEBE MENSAGENS)
-# Twilio chama esse endpoint e você responde direto por aqui.
-# ---------------------------------------------------------
-@app.route("/webhook", methods=["POST"])
-def webhook_twilio():
-    sender = request.form.get("From", "")
-    msg_body = request.form.get("Body", "").strip()
-
-    print(f"Mensagem recebida de {sender}: {msg_body}")
-
-    resp = MessagingResponse()
-
-    # Exemplo simples: responder automaticamente
-    if msg_body.lower() in ["oi", "ola", "olá"]:
-        resp.message("Olá! Sou o assistente contábil automatizado do Franklin 😊.")
-        return str(resp)
-
-    resp.message("Mensagem recebida! Em breve o Franklin responderá.")
-    return str(resp)
-
-
-# ---------------------------------------------------------
-# ROTA EXEMPLO PARA ENVIAR UM PDF AUTOMATICAMENTE
-# Útil para testar no navegador sem Twilio
-# ---------------------------------------------------------
-@app.route("/teste-pdf")
-def teste_pdf():
-    exemplo_pdf = "exemplo.pdf"
-    caminho_pdf = os.path.join(PDF_FOLDER, exemplo_pdf)
-
-    # cria PDF se não existir
-    if not os.path.exists(caminho_pdf):
-        with open(caminho_pdf, "wb") as f:
-            f.write(b"%PDF-1.4 exemplo vazio só para testar")
-
-    url_publica = f"{request.url_root}pdfs/{exemplo_pdf}"
-    return jsonify({"pdf_url": url_publica})
-
-
-# ---------------------------------------------------------
-# START DO SERVIDOR (OBRIGATÓRIO PARA O RAILWAY)
-# ---------------------------------------------------------
+# ==========================================================
+# INICIALIZAR APP NO RAILWAY
+# ==========================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
